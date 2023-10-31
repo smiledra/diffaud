@@ -254,8 +254,6 @@ def aud2cor_j(y, paras, rv, sv):
                     raise NotImplementedError
     return cr
 
-from functools import partial
-
 @partial(jit, static_argnums=1)
 def gen_cort_j(fc, L, STF, PASS):
     '''
@@ -272,8 +270,6 @@ def gen_cort_j(fc, L, STF, PASS):
     Output: (bandpass) cortical temporal filter for various length and sampling rate.
     '''
 
-    #if PASS == None: PASS = [2,3]
-
     # Tonotopic axis
     t = jnp.linspace(0, L-1, L) / STF * fc
     h = jnp.sin(2*np.pi*t) * t**2 * jnp.exp(-3.5*t) * fc
@@ -283,24 +279,12 @@ def gen_cort_j(fc, L, STF, PASS):
     A, H = jnp.angle(H0[:L]), jnp.abs(H0[:L])
     #maxi = jnp.argmax(H)
     H /= jnp.max(H)
-
-    #return H
-
-    # Rewrite the passband behavior to avoid dynamic indexing, 
-    # which is problematic in differentiation --Leslie 10/21/23
-
-    #print(maxi)
-
-    # Passband
-    # Might need to generally debug the indexing problems here
-    # if PASS[0] == 1: # LPF
-    #     H = H.at[:maxi].set(1) 
-    # elif PASS[0] == PASS[1]: 
-    #     H = H.at[maxi:].set(1) 
         
-    H = H * jnp.exp(1j*A)
+    #H = H * jnp.exp(1j*A)
+    H *= jnp.sin(A) + 1j*jnp.cos(A)
     return H
 
+from functools import partial
 
 @partial(jit, static_argnums=1)
 def gen_corf_j(fc, L, SRF, KIND):
@@ -329,4 +313,100 @@ def gen_corf_j(fc, L, SRF, KIND):
     # elif PASS[0] == PASS[1]: # HPF
     #     H = H.at[maxi:L].set(1)
     H = H / jnp.sum(H) * sumH
+    return H
+
+# Further simplified functions for fast and numerically good strf extraction
+
+# def strf(y, sr):
+#     '''
+#     Python version of aud2cor() in the NSL toolbox. From auditory spectrogram to cortical STRF.
+
+#     Input:
+#     y: auditory spectrogram
+#     paras: parameters that generated the auditory spectrogram, e.g. [5, 8, -2, 0]
+#     rv: rate vector
+#     sv: scale vector
+#     out_filename: write the output in this file
+#     disp: normalization during display
+#     '''
+
+#     paras = [5, 8, -2, 0]
+#     FULLX, FULLT, BP = 0, 0, 0
+#     STF, SRF = 1000/paras[0], 24
+    
+#     N, M = y.shape
+#     N1, M1 = 2**ceil(np.log2(N)), 2**ceil(np.log2(M))
+#     N2, M2 = N1*2, M1*2
+    
+#     Y = jnp.fft.fft(y, M2, axis=1)[:,:M1] # Fourier transform (frequency)
+#     Y = jnp.fft.fft(Y[:N,:], N2, axis=0) # Fourier transform (temporal)
+
+#     cr = []
+#     for i in range(len(sr)): # rate filtering
+#         s,r = sr[i,:]
+#         HR = gen_cort_strf(r, N1, STF) 
+
+#         for sgn in [1, -1]:
+#             if sgn == 1: 
+#                 HR = jnp.concatenate([HR, np.zeros(N1)])
+#             if sgn == -1: # conjugate
+#                 HR = jnp.insert(jnp.conj(jnp.flipud(HR[1:N2])), 0, HR[0])
+#                 HR = HR.at[N1].set(jnp.abs(HR[N1+1]))
+
+#             #print(sgn, HR.shape, Y.T.shape)
+#             z1 = (HR * Y.T).T # Temporal convolution
+#             z1 = jnp.fft.ifft(z1, axis=0)[:N, :]
+    
+#             HS = gen_corf_strf(s, M1, SRF) 
+#             z1 = z1*HS # Frequency convolution
+            
+#             R1v = jnp.fft.ifft(z1, M2) # Second inverse FFT
+#             cr.append(jnp.expand_dims(R1v[:, :M], axis=0))
+#     cr = jnp.vstack(cr)
+#     return cr
+
+@partial(jit, static_argnums=1)
+def gen_cort_strf(fc, L, STF):
+    '''
+    The primary purpose is to generate 2, 4,
+    8, 16, 32 Hz bandpass filter at sample rate ranges from, roughly
+    speaking, 65 -- 1000 Hz. Note the filter is complex and non-causal.
+
+    Input: 
+    fc: characteristic frequency
+    L: length of the filter; power of 2 is preferable. Not differentiable.
+    STF: sample rate
+    PASS: [idx, K]; if idx=1, lowpass; if 1<idx<k, bandpass; if idx=K, highpass
+    
+    Output: (bandpass) cortical temporal filter for various length and sampling rate.
+    '''
+    eps = 1e-15
+
+    # Tonotopic axis
+    t = jnp.linspace(0, L-1, L) / STF * fc
+    h = jnp.sin(2*np.pi*t) * t**2 * jnp.exp(-3.5*t) * fc
+    h = h - jnp.mean(h)
+    
+    H0 = jnp.fft.fft(h, 2*L) # n-point fft, N=2L
+    # if (H0[L:] == 0.0).any():
+    #     print(f"zero output detected at {(out==0.0).nonzero()}")
+    H0 = H0[:L]
+    H0 = jnp.where(jnp.abs(H0)<eps, eps, H0)
+    #H0 = H0.at[temp].set(eps)
+    #temp = jnp.sign(H0)
+    #H0 = jnp.abs(H0).at[:].max(eps)
+    #H0 = H0 *(temp+(temp==0).astype(int))
+    
+    A, H = jnp.angle(H0), jnp.abs(H0)
+    H /= jnp.max(H)
+    H *= jnp.cos(A) + 1j*jnp.sin(A)
+    return H#, A
+
+@partial(jit, static_argnums=1)
+def gen_corf_strf(fc, L, SRF):
+
+    # tonotopic axis
+    R1 = jnp.array([i for i in range(L)]) / L * SRF / 2 / jnp.abs(fc)
+    R1 = R1**2
+    H = R1 * jnp.exp(1-R1)
     return H

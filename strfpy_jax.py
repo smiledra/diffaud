@@ -317,53 +317,54 @@ def gen_corf_j(fc, L, SRF, KIND):
 
 # Further simplified functions for fast and numerically good strf extraction
 
-# def strf(y, sr):
-#     '''
-#     Python version of aud2cor() in the NSL toolbox. From auditory spectrogram to cortical STRF.
+@jit
+def strf(y, sr):
+  '''
+  Python version of aud2cor() in the NSL toolbox. From auditory spectrogram to cortical STRF.
 
-#     Input:
-#     y: auditory spectrogram
-#     paras: parameters that generated the auditory spectrogram, e.g. [5, 8, -2, 0]
-#     rv: rate vector
-#     sv: scale vector
-#     out_filename: write the output in this file
-#     disp: normalization during display
-#     '''
+  Input:
+  y: auditory spectrogram, duration x channels
+  paras: parameters that generated the auditory spectrogram, e.g. [5, 8, -2, 0]
+  rv: rate vector
+  sv: scale vector
+  out_filename: write the output in this file
+  disp: normalization during display
+  '''
+  paras = [5, 8, -2, 0]
+  STF, SRF = 1000/paras[0], 24
+  
+  N, M = y.shape
+  N1, M1 = 2**ceil(np.log2(N)), 2**ceil(np.log2(M))
+  N2, M2 = N1*2, M1*2
+  
+  Y = jnp.fft.fft(y, M2, axis=1)[:,:M1] # Fourier transform (frequency)
+  Y = jnp.fft.fft(Y[:N,:], N2, axis=0) # Fourier transform (temporal)
 
-#     paras = [5, 8, -2, 0]
-#     FULLX, FULLT, BP = 0, 0, 0
-#     STF, SRF = 1000/paras[0], 24
+  signs = np.ones(len(sr))
+  signs[:floor(len(sr)/2)] -= 2
+  signs = tuple(np.array(signs))
+
+  cr = []
+  for i in range(len(sr)): # rate filtering
+    (s, r), sgn = sr[i,:], signs[i]
+    HR = gen_cort_strf(r, N1, STF) 
+
+    HR = jnp.concatenate([HR, np.zeros(N1)])
+    if sgn == -1: # conjugate
+      HR = jnp.insert(jnp.conj(jnp.flipud(HR[1:N2])), 0, HR[0])
+      HR = HR.at[N1].set(jnp.abs(HR[N1+1]))
+
+    #print(sgn, HR.shape, Y.T.shape)
+    z1 = (HR * Y.T).T # Temporal convolution
+    z1 = jnp.fft.ifft(z1, axis=0)[:N, :]
+
+    HS = gen_corf_strf(s, M1, SRF) 
+    z1 = z1*HS # Frequency convolution
     
-#     N, M = y.shape
-#     N1, M1 = 2**ceil(np.log2(N)), 2**ceil(np.log2(M))
-#     N2, M2 = N1*2, M1*2
-    
-#     Y = jnp.fft.fft(y, M2, axis=1)[:,:M1] # Fourier transform (frequency)
-#     Y = jnp.fft.fft(Y[:N,:], N2, axis=0) # Fourier transform (temporal)
-
-#     cr = []
-#     for i in range(len(sr)): # rate filtering
-#         s,r = sr[i,:]
-#         HR = gen_cort_strf(r, N1, STF) 
-
-#         for sgn in [1, -1]:
-#             if sgn == 1: 
-#                 HR = jnp.concatenate([HR, np.zeros(N1)])
-#             if sgn == -1: # conjugate
-#                 HR = jnp.insert(jnp.conj(jnp.flipud(HR[1:N2])), 0, HR[0])
-#                 HR = HR.at[N1].set(jnp.abs(HR[N1+1]))
-
-#             #print(sgn, HR.shape, Y.T.shape)
-#             z1 = (HR * Y.T).T # Temporal convolution
-#             z1 = jnp.fft.ifft(z1, axis=0)[:N, :]
-    
-#             HS = gen_corf_strf(s, M1, SRF) 
-#             z1 = z1*HS # Frequency convolution
-            
-#             R1v = jnp.fft.ifft(z1, M2) # Second inverse FFT
-#             cr.append(jnp.expand_dims(R1v[:, :M], axis=0))
-#     cr = jnp.vstack(cr)
-#     return cr
+    R1v = jnp.fft.ifft(z1, M2) # Second inverse FFT
+    cr.append(jnp.expand_dims(R1v[:, :M], axis=0))
+  cr = jnp.vstack(cr)
+  return cr
 
 @partial(jit, static_argnums=1)
 def gen_cort_strf(fc, L, STF):

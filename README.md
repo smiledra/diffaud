@@ -1,16 +1,16 @@
-## Case 1
+## Case 1: Inversion of Auditory Spectrogram
 
 ![Spectrogram](Case1_spectrogram.png)
 
 Audio: [Ground Truth](Case1_groundTruth.mp3) vs. [Model Output](Case1_reconstructedAudio.mp3)
 
-## Case 2
+## Case 2: STRF Autoencoder
 
 ![Spectrogram](Case2.png)
 
 Audio: [Ground Truth](Case3_groundTruth.mp3) vs. [Model Output](Case2_reconstructedAudio.mp3)
 
-## Case 3
+## Case 3: Speech Enhancement/Denoising
 
 ### White noise removal
 

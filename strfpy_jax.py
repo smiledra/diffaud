@@ -138,7 +138,7 @@ def wav2aud_j(x, frmlen, time_constant, fac, octave_shift, As, Bs, filt_type='p'
             y = cochlear_filter_fft(B, A, x) # -> y1
         else:
             y = cochlear_filter(B, A, x) # -> y1
-        # y = sigmoid_j(y, fac) # -> y2
+        y = sigmoid_j(y, fac) # -> y2
         # Useless for now, since fac=-2, leading to linear operation
         v5.append(y)
     v5 = jnp.vstack(v5)
@@ -377,7 +377,6 @@ def gen_cort_strf(fc, L, STF):
     fc: characteristic frequency
     L: length of the filter; power of 2 is preferable. Not differentiable.
     STF: sample rate
-    PASS: [idx, K]; if idx=1, lowpass; if 1<idx<k, bandpass; if idx=K, highpass
     
     Output: (bandpass) cortical temporal filter for various length and sampling rate.
     '''
